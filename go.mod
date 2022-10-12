@@ -1,4 +1,4 @@
-module github.com/libdns/template
+module go.fyfe.io/libdns-fyfeio
 
 go 1.18
 

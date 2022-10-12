@@ -1,14 +1,36 @@
-// Package libdnstemplate implements a DNS record management client compatible
-// with the libdns interfaces for <PROVIDER NAME>. TODO: This package is a
-// template only. Customize all godocs for actual implementation.
-package libdnstemplate
+// Package libdns_fyfeio implements a DNS record management client compatible
+// with the libdns interfaces for fyfe.io.
+package libdns_fyfeio
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/libdns/libdns"
 )
+
+type Record struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type RecordWrapper struct {
+	Name   string  `json:"name"`
+	TTL    uint32  `json:"ttl"`
+	Record *Record `json:"record"`
+}
+
+type AppendRecordsRequest struct {
+	Records []*RecordWrapper `json:"records"`
+}
+
+type AppendRecordsResponse struct {
+	Message string `json:"message"`
+}
 
 // TODO: Providers must not require additional provisioning steps by the callers; it
 // should work simply by populating a struct and calling methods on it. If your DNS
@@ -23,6 +45,61 @@ type Provider struct {
 	APIToken string `json:"api_token,omitempty"`
 }
 
+func callAPI(zone string, record libdns.Record, action string) error {
+	if action != "upsert" && action != "delete" {
+		return errors.New("invalid action. Expected upsert or delete.")
+	}
+
+	client := &http.Client{}
+
+	fyfeRecord := &Record{
+		"TXT", record.Value,
+	}
+	wrapper := &RecordWrapper{
+		Name:   record.Name,
+		Record: fyfeRecord,
+		TTL:    uint32(record.TTL.Seconds()),
+	}
+	request := &AppendRecordsRequest{[]*RecordWrapper{wrapper}}
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://localhost:3000/zone/%s", zone), bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-type", "application/json")
+
+	res, err := client.Do(req)
+
+	response := &AppendRecordsResponse{}
+	decoder := json.NewDecoder(res.Body)
+	err = decoder.Decode(response)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func appendRecord(zone string, record libdns.Record) error {
+	err := callAPI(zone, record, "append")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+func deleteRecord(zone string, record libdns.Record) error {
+	err := callAPI(zone, record, "delete")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // GetRecords lists all the records in the zone.
 func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record, error) {
 	return nil, fmt.Errorf("TODO: not implemented")
@@ -30,6 +107,11 @@ func (p *Provider) GetRecords(ctx context.Context, zone string) ([]libdns.Record
 
 // AppendRecords adds records to the zone. It returns the records that were added.
 func (p *Provider) AppendRecords(ctx context.Context, zone string, records []libdns.Record) ([]libdns.Record, error) {
+
+	for _, record := range records {
+		appendRecord(zone, record)
+	}
+
 	return nil, fmt.Errorf("TODO: not implemented")
 }
 
